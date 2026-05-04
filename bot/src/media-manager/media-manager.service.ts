@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { v4 as uid } from 'uuid';
+import { generateUuid } from '../utils/uuid.util';
 import { toErrorMessage } from '../utils/error.utils';
 import { ConfigService } from '@nestjs/config';
 import { S3Client } from '@aws-sdk/client-s3';
@@ -37,7 +37,7 @@ export class MediaManagerService {
   ): Promise<[string, boolean, FileInfo | null]> {
     try {
       const ext = file.originalname.split('.').pop();
-      const uniqueFilename = `${uid()}.${ext}`;
+      const uniqueFilename = `${await generateUuid()}.${ext}`;
       const key = `${this.folder}/${uniqueFilename}`;
 
       const upload = new Upload({
@@ -78,7 +78,7 @@ export class MediaManagerService {
   }> {
     try {
       const ext = fileName.split('.').pop();
-      const uniqueFilename = `${uid()}.${ext}`;
+      const uniqueFilename = `${await generateUuid()}.${ext}`;
       const key = `${this.folder}/${uniqueFilename}`;
 
       const upload = new Upload({
