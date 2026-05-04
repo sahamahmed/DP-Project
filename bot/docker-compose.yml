@@ -1,0 +1,126 @@
+services:
+  # NestJS Backend Application
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: restaurant-bot-backend
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      # Nginx proxy configuration
+      - VIRTUAL_HOST=${DOMAIN}
+      - LETSENCRYPT_HOST=${DOMAIN}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
+      # Application
+      - NODE_ENV=production
+      - PORT=3000
+
+      # Redis connection (using local Redis container)
+      - REDIS_URL=redis://redis:6379
+
+      # MongoDB (from .env - cloud-based)
+      - MONGODB_URI=${MONGODB_URI}
+
+      # WhatsApp
+      - WHATSAPP_WEBHOOK_VERIFY_TOKEN=${WHATSAPP_WEBHOOK_VERIFY_TOKEN}
+      - WEB_VIEW_BASE_URL=${WEB_VIEW_BASE_URL}
+
+      # GROQ AI
+      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GROQ_FALLBACK_MODEL=${GROQ_FALLBACK_MODEL}
+
+      # JWT
+      - JWT_SECRET=${JWT_SECRET}
+
+      # DigitalOcean Spaces
+      - SPACES_ACCESS_KEY=${SPACES_ACCESS_KEY}
+      - SPACES_SECRET_KEY=${SPACES_SECRET_KEY}
+      - SPACES_BUCKET=${SPACES_BUCKET}
+      - SPACES_REGION=${SPACES_REGION}
+      - SPACES_FOLDER=${SPACES_FOLDER}
+      - SPACES_ENDPOINT=${SPACES_ENDPOINT}
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - restaurant-bot-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Redis for BullMQ and caching
+  redis:
+    image: redis:7-alpine
+    container_name: restaurant-bot-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redis-data:/data
+    networks:
+      - restaurant-bot-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+  # Nginx reverse proxy with automatic SSL
+  nginx:
+    image: nginxproxy/nginx-proxy:alpine
+    container_name: restaurant-bot-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/tmp/docker.sock:ro
+      - nginx-certs:/etc/nginx/certs:ro
+      - nginx-vhost:/etc/nginx/vhost.d
+      - nginx-html:/usr/share/nginx/html
+    labels:
+      - "com.github.nginx-proxy.nginx"
+    networks:
+      - restaurant-bot-network
+    depends_on:
+      - backend
+
+  # Automatic SSL certificate management with Let's Encrypt
+  letsencrypt:
+    image: nginxproxy/acme-companion:latest
+    container_name: restaurant-bot-letsencrypt
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - nginx-certs:/etc/nginx/certs:rw
+      - nginx-vhost:/etc/nginx/vhost.d
+      - nginx-html:/usr/share/nginx/html
+      - acme-state:/etc/acme.sh
+    environment:
+      - DEFAULT_EMAIL=${LETSENCRYPT_EMAIL}
+      - NGINX_PROXY_CONTAINER=restaurant-bot-nginx
+    networks:
+      - restaurant-bot-network
+    depends_on:
+      - nginx
+
+volumes:
+  redis-data:
+    driver: local
+  nginx-certs:
+    driver: local
+  nginx-vhost:
+    driver: local
+  nginx-html:
+    driver: local
+  acme-state:
+    driver: local
+
+networks:
+  restaurant-bot-network:
+    driver: bridge
